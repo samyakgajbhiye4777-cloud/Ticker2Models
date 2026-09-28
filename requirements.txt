@@ -1,0 +1,5 @@
+yfinance>=0.2.50
+openpyxl>=3.1
+pandas
+flask>=3
+formulas>=1.2
