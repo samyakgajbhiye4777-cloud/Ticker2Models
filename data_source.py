@@ -156,24 +156,23 @@ def fetch_company(ticker, peers=None, n_peers=8, max_hist=3):
         cur_assets=_fill(_series(bal, ["Current Assets"], years)),
         cur_liab=_fill(_series(bal, ["Current Liabilities"], years)),
     )
-    # Preserve a more recognisable reported-statement view for the web model.
-    # These are deliberately not required: yfinance label coverage varies by issuer.
-    raw = dict(
-        revenue=h["rev"],
-        cogs=_series(inc, ["Cost Of Revenue", "Cost Of Goods And Services Sold", "Cost Of Goods Sold"], years),
-        gross_profit=_series(inc, ["Gross Profit"], years),
-        ebitda=h["ebitda"], ebit=ebit, interest=h["interest"], tax=h["tax"], net_income=h["ni"],
-        cfo=_series(cf, ["Total Cash From Operating Activities", "Operating Cash Flow", "Cash Flow From Continuing Operating Activities"], years),
-        capex=h["capex"], dividends=h["div"],
-        debt_issued=_series(cf, ["Issuance Of Debt", "Net Issuance Payments"], years),
-        debt_repaid=_series(cf, ["Repayment Of Debt", "Net Debt Repayment"], years),
-        cash=h["cash"], receivables=h["ar"], inventory=h["inv"], ppe=h["ppe"], total_assets=h["total_assets"],
-        payables=h["ap"], debt=h["debt"], equity=h["equity"],
-    )
 
     price = _num(info.get("currentPrice")) or _num(info.get("regularMarketPrice")) or _num(info.get("previousClose"))
     if not price:
-        raise ValueError("Could not read a current share price.")
+        try:
+            price = _num(t.fast_info.get("lastPrice") or t.fast_info.get("last_price"))
+        except Exception:
+            pass
+    if not price:
+        try:
+            closes = t.history(period="5d")["Close"].dropna()
+            price = _num(closes.iloc[-1]) if len(closes) else None
+        except Exception:
+            pass
+    if not price:
+        raise ValueError(f"Could not read a current share price for '{ticker}'. "
+                         f"Yahoo Finance may be rate-limiting this server, or the symbol may be wrong "
+                         f"(Indian stocks need .NS or .BO). Try again in a minute or try a different ticker.")
     shares = (_num(info.get("sharesOutstanding")) or (_num(info.get("marketCap")) or 0) / price) / MM
     if not shares:
         raise ValueError("Could not determine shares outstanding.")
@@ -212,7 +211,6 @@ def fetch_company(ticker, peers=None, n_peers=8, max_hist=3):
         sector=info.get("sector", ""), industry=info.get("industry", ""), price=price, shares=shares,
         beta=_num(info.get("beta")) or 1.0, vol=vol, div_yield=div_rate / price if price else 0.0,
         years=years, hist=h, target_ttm=_snapshot(info), peers=peer_rows,
-        raw=raw,
         option=_option_snapshot(t, price), warnings=warnings,
         source="Yahoo Finance via yfinance (unofficial; personal use only)", asof=dt.date.today().isoformat(),
     )
@@ -220,7 +218,7 @@ def fetch_company(ticker, peers=None, n_peers=8, max_hist=3):
 
 # ----------------------------------------------------------------------------- synthetic demo
 def demo_company():
-    """Entirely synthetic company so the workbook can be built/tested offline. NOT real data."""
+    """ Entirely synthetic company so the workbook can be built/tested offline. NOT real data."""
     h = dict(
         rev=[4200, 4650, 5100], ebitda=[840, 930, 1020], da=[210, 225, 240], interest=[60, 58, 55],
         tax=[95, 110, 125], ni=[470, 540, 605], capex=[260, 280, 300], div=[100, 120, 140],
@@ -229,11 +227,6 @@ def demo_company():
         total_assets=[3600, 3950, 4350], retained=[1200, 1550, 1980],
         cur_assets=[1500, 1650, 1850], cur_liab=[700, 750, 800],
     )
-    raw = dict(revenue=h["rev"], cogs=[2520, 2790, 3060], gross_profit=[1680, 1860, 2040],
-               ebitda=h["ebitda"], ebit=[630, 705, 780], interest=h["interest"], tax=h["tax"], net_income=h["ni"],
-               cfo=[690, 760, 855], capex=h["capex"], dividends=h["div"], debt_issued=[0, 0, 0], debt_repaid=[50, 50, 50],
-               cash=h["cash"], receivables=h["ar"], inventory=h["inv"], ppe=h["ppe"], total_assets=h["total_assets"],
-               payables=h["ap"], debt=h["debt"], equity=h["equity"])
     def peer(n, s, mc, d, c, r, e, ni):
         return dict(name=n, ticker=s, mcap=mc, debt=d, cash=c, rev=r, ebitda=e, ni=ni)
     peers = [peer("Alpha Industries", "ALP", 21000, 1500, 600, 6800, 1350, 780),
@@ -246,7 +239,6 @@ def demo_company():
         ticker="DEMO", name="Demo Manufacturing Co (SYNTHETIC)", currency="USD", sector="Industrials",
         industry="Specialty Industrial Machinery", price=150.0, shares=100.0, beta=1.1, vol=0.28,
         div_yield=0.008, years=[2023, 2024, 2025], hist=h,
-        raw=raw,
         target_ttm=dict(name="Demo", ticker="DEMO", mcap=15000, debt=800, cash=520, rev=5250, ebitda=1060, ni=630),
         peers=peers,
         option=dict(expiry="synthetic", days=32, strike=150.0, call=6.9, put=5.8, call_iv=0.27, put_iv=0.28),
