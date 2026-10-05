@@ -173,9 +173,22 @@ def fetch_company(ticker, peers=None, n_peers=8, max_hist=3):
         raise ValueError(f"Could not read a current share price for '{ticker}'. "
                          f"Yahoo Finance may be rate-limiting this server, or the symbol may be wrong "
                          f"(Indian stocks need .NS or .BO). Try again in a minute or try a different ticker.")
-    shares = (_num(info.get("sharesOutstanding")) or (_num(info.get("marketCap")) or 0) / price) / MM
+    mcap = _num(info.get("marketCap"))
+    shares_raw = _num(info.get("sharesOutstanding")) or _num(info.get("impliedSharesOutstanding"))
+    if not shares_raw:
+        try:
+            fi = t.fast_info
+            shares_raw = _num(fi.get("shares") or fi.get("shares_outstanding"))
+            mcap = mcap or _num(fi.get("market_cap") or fi.get("marketCap"))
+        except Exception:
+            pass
+    if not shares_raw and mcap:
+        shares_raw = mcap / price
+    shares = (shares_raw or 0) / MM
     if not shares:
-        raise ValueError("Could not determine shares outstanding.")
+        raise ValueError(f"Could not determine shares outstanding for '{ticker}'. "
+                         f"Yahoo Finance may be withholding this field for this listing or rate-limiting "
+                         f"this server. Try again shortly, or try a different ticker.")
 
     warnings = []
     cur, fcur = info.get("currency", "USD"), info.get("financialCurrency")
@@ -218,7 +231,7 @@ def fetch_company(ticker, peers=None, n_peers=8, max_hist=3):
 
 # ----------------------------------------------------------------------------- synthetic demo
 def demo_company():
-    """ Entirely synthetic company so the workbook can be built/tested offline. NOT real data."""
+    """Entirely synthetic company so the workbook can be built/tested offline. NOT real data."""
     h = dict(
         rev=[4200, 4650, 5100], ebitda=[840, 930, 1020], da=[210, 225, 240], interest=[60, 58, 55],
         tax=[95, 110, 125], ni=[470, 540, 605], capex=[260, 280, 300], div=[100, 120, 140],
